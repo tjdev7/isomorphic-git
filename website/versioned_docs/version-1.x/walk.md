@@ -166,7 +166,7 @@ type Stat = {
 
 
 ```ts
-type WalkerMap = (filename: string, entries: Array<WalkerEntry>) => Promise<any>;
+type WalkerMap = (filename: string, entries: Array<(WalkerEntry|null)>) => Promise<any>;
 ```
 
 
@@ -193,12 +193,14 @@ async function map(filepath, [head, workdir]) {
 
 Example 2: Return the difference between the working directory and the HEAD commit
 ```js
-const diff = require('diff-lines')
-async function map(filepath, [head, workdir]) {
+const map = async (filepath, [head, workdir]) => {
   return {
     filepath,
-    oid: await head.oid(),
-    diff: diff((await head.content()).toString('utf8'), (await workdir.content()).toString('utf8'))
+    oid: await head?.oid(),
+    diff: diff(
+      (await head?.content())?.toString('utf8') || '',
+      (await workdir?.content())?.toString('utf8') || ''
+    )
   }
 }
 ```

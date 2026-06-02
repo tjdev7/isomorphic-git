@@ -2,6 +2,59 @@ import pify from 'pify'
 
 import { compareStrings } from '../utils/compareStrings.js'
 import { dirname } from '../utils/dirname.js'
+import { rmRecursive } from '../utils/rmRecursive.js'
+import { isPromiseLike } from '../utils/types.js'
+
+function isPromiseFs(fs) {
+  const test = targetFs => {
+    try {
+      // If readFile returns a promise then we can probably assume the other
+      // commands do as well
+      return targetFs.readFile().catch(e => e)
+    } catch (e) {
+      return e
+    }
+  }
+  return isPromiseLike(test(fs))
+}
+
+// List of commands all filesystems are expected to provide. `rm` is not
+// included since it may not exist and must be handled as a special case
+const commands = [
+  'readFile',
+  'writeFile',
+  'mkdir',
+  'rmdir',
+  'unlink',
+  'stat',
+  'lstat',
+  'readdir',
+  'readlink',
+  'symlink',
+]
+
+function bindFs(target, fs) {
+  if (isPromiseFs(fs)) {
+    for (const command of commands) {
+      target[`_${command}`] = fs[command].bind(fs)
+    }
+  } else {
+    for (const command of commands) {
+      target[`_${command}`] = pify(fs[command].bind(fs))
+    }
+  }
+
+  // Handle the special case of `rm`
+  if (isPromiseFs(fs)) {
+    if (fs.rm) target._rm = fs.rm.bind(fs)
+    else if (fs.rmdir.length > 1) target._rm = fs.rmdir.bind(fs)
+    else target._rm = rmRecursive.bind(null, target)
+  } else {
+    if (fs.rm) target._rm = pify(fs.rm.bind(fs))
+    else if (fs.rmdir.length > 2) target._rm = pify(fs.rmdir.bind(fs))
+    else target._rm = rmRecursive.bind(null, target)
+  }
+}
 
 /**
  * This is just a collection of helper functions really. At least that's how it started.
@@ -12,34 +65,16 @@ export class FileSystem {
 
     const promises = Object.getOwnPropertyDescriptor(fs, 'promises')
     if (promises && promises.enumerable) {
-      this._readFile = fs.promises.readFile.bind(fs.promises)
-      this._writeFile = fs.promises.writeFile.bind(fs.promises)
-      this._mkdir = fs.promises.mkdir.bind(fs.promises)
-      this._rmdir = fs.promises.rmdir.bind(fs.promises)
-      this._unlink = fs.promises.unlink.bind(fs.promises)
-      this._stat = fs.promises.stat.bind(fs.promises)
-      this._lstat = fs.promises.lstat.bind(fs.promises)
-      this._readdir = fs.promises.readdir.bind(fs.promises)
-      this._readlink = fs.promises.readlink.bind(fs.promises)
-      this._symlink = fs.promises.symlink.bind(fs.promises)
+      bindFs(this, fs.promises)
     } else {
-      this._readFile = pify(fs.readFile.bind(fs))
-      this._writeFile = pify(fs.writeFile.bind(fs))
-      this._mkdir = pify(fs.mkdir.bind(fs))
-      this._rmdir = pify(fs.rmdir.bind(fs))
-      this._unlink = pify(fs.unlink.bind(fs))
-      this._stat = pify(fs.stat.bind(fs))
-      this._lstat = pify(fs.lstat.bind(fs))
-      this._readdir = pify(fs.readdir.bind(fs))
-      this._readlink = pify(fs.readlink.bind(fs))
-      this._symlink = pify(fs.symlink.bind(fs))
+      bindFs(this, fs)
     }
     this._original_unwrapped_fs = fs
   }
 
   /**
    * Return true if a file exists, false if it doesn't exist.
-   * Rethrows errors that aren't related to file existance.
+   * Rethrows errors that aren't related to file existence.
    */
   async exists(filepath, options = {}) {
     try {
@@ -66,6 +101,15 @@ export class FileSystem {
   async read(filepath, options = {}) {
     try {
       let buffer = await this._readFile(filepath, options)
+      if (options.autocrlf === 'true') {
+        try {
+          buffer = new TextDecoder('utf8', { fatal: true }).decode(buffer)
+          buffer = buffer.replace(/\r\n/g, '\n')
+          buffer = new TextEncoder().encode(buffer)
+        } catch (error) {
+          // non utf8 file
+        }
+      }
       // Convert plain ArrayBuffers to Buffers
       if (typeof buffer !== 'string') {
         buffer = Buffer.from(buffer)
@@ -134,9 +178,13 @@ export class FileSystem {
   /**
    * Delete a directory without throwing an error if it is already deleted.
    */
-  async rmdir(filepath) {
+  async rmdir(filepath, opts) {
     try {
-      await this._rmdir(filepath)
+      if (opts && opts.recursive) {
+        await this._rm(filepath, opts)
+      } else {
+        await this._rmdir(filepath)
+      }
     } catch (err) {
       if (err.code !== 'ENOENT') throw err
     }
@@ -179,7 +227,7 @@ export class FileSystem {
 
   /**
    * Return the Stats of a file/symlink if it exists, otherwise returns null.
-   * Rethrows errors that aren't related to file existance.
+   * Rethrows errors that aren't related to file existence.
    */
   async lstat(filename) {
     try {
@@ -195,13 +243,14 @@ export class FileSystem {
 
   /**
    * Reads the contents of a symlink if it exists, otherwise returns null.
-   * Rethrows errors that aren't related to file existance.
+   * Rethrows errors that aren't related to file existence.
    */
   async readlink(filename, opts = { encoding: 'buffer' }) {
     // Note: FileSystem.readlink returns a buffer by default
     // so we can dump it into GitObject.write just like any other file.
     try {
-      return this._readlink(filename, opts)
+      const link = await this._readlink(filename, opts)
+      return Buffer.isBuffer(link) ? link : Buffer.from(link)
     } catch (err) {
       if (err.code === 'ENOENT') {
         return null

@@ -142,7 +142,7 @@ const Features = props => (
             height="64"
           />
           <img
-            src="https://upload.wikimedia.org/wikipedia/commons/8/82/Android_logo_2019.svg"
+            src="https://upload.wikimedia.org/wikipedia/commons/6/64/Android_logo_2019_%28stacked%29.svg"
             alt=""
             width="64"
             height="64"
@@ -268,7 +268,7 @@ const TryGitRemoteInfo = props => (
   <Container padding={["bottom", "top"]} id={props.id} background="light">
     <div className="try-it-out">
       <h2>Try it out!</h2>
-      <label htmlFor="giturl">Enter in the URL of a git repository, and we'll retrive the list of branches and tags using the git HTTP protocol.</label>
+      <label htmlFor="giturl">Enter in the URL of a git repository, and we'll retrieve the list of branches and tags using the git HTTP protocol.</label>
       <div>
         <input
           id="giturl_input"

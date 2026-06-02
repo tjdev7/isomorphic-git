@@ -171,6 +171,35 @@ describe('git wire protocol', () => {
       ['refs/heads/master5', 'e5c144897b64a44bd1164a0db60738452c9eaf87'],
     ])
   })
+  it('parseRefsAdResponse empty repo with capabilities', async () => {
+    const res = [
+      Buffer.from(`001e# service=git-upload-pack
+000000fa0000000000000000000000000000000000000000 capabilities^{}\0multi_ack thin-pack side-band side-band-64k ofs-delta shallow deepen-since deepen-not deepen-relative no-progress include-tag multi_ack_detailed no-done object-format=sha1 agent=git/2.43.0
+0000`),
+    ]
+    const result = await parseRefsAdResponse(res, {
+      service: 'git-upload-pack',
+    })
+    expect([...result.capabilities]).toEqual([
+      'multi_ack',
+      'thin-pack',
+      'side-band',
+      'side-band-64k',
+      'ofs-delta',
+      'shallow',
+      'deepen-since',
+      'deepen-not',
+      'deepen-relative',
+      'no-progress',
+      'include-tag',
+      'multi_ack_detailed',
+      'no-done',
+      'object-format=sha1',
+      'agent=git/2.43.0',
+    ])
+    expect([...result.symrefs]).toEqual([])
+    expect([...result.refs]).toEqual([])
+  })
   it('parseRefsAdResponse bad service', async () => {
     const res = [
       Buffer.from(`001e# noservice=git-upload-pack
@@ -386,6 +415,11 @@ access it.
     const res = [Buffer.from(`0008NAK\n`)]
     const result = await parseUploadPackResponse(res)
     expect(result.nak).toBe(true)
+  })
+  it('parseUploadPackResponse - no packetlines', async () => {
+    const res = [Buffer.from(`0000`)]
+    const result = await parseUploadPackResponse(res)
+    expect(result.nak).toBe(false)
   })
   it('parseUploadPackResponse - incremental update (fetch)', async () => {
     const res = [

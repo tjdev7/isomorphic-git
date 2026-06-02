@@ -22,7 +22,7 @@ To add a parameter to an existing command `X`:
 To create a new command:
 
 - [ ] add as a new file in `src/api` (and `src/commands` if necessary)
-- [ ] add command to `src/index.js`
+- [ ] add command to `src/index.js` (named and/or default export)
 - [ ] update `__tests__/__snapshots__/test-exports.js.snap`
 - [ ] create a test in `src/__tests__`
 - [ ] document the command with a JSDoc comment
@@ -81,3 +81,25 @@ parse[*]Response: (input: stream) -> Object
 Server:
 parse[*]Request: (input: stream) -> Object
 write[*]Response: (input: Object) -> stream
+
+### How git works
+If you want to contribute it may be useful if you understand how git works under the hood.
+This is great article that shows the details:<br/>
+[A Hacker's Guide to Git](https://wildlyinaccurate.com/a-hackers-guide-to-git/).<br/>
+But as first the introduction you can watch this video:<br/>
+[![Link to Video: Inside the Hidden Git Folder - Computerphile](https://img.youtube.com/vi/bSA91XTzeuA/0.jpg)](http://www.youtube.com/watch?v=bSA91XTzeuA)
+
+And here is another advanced video:<br/>
+[![Advanced Git: Graphs, Hashes, and Compression, Oh My!](https://img.youtube.com/vi/ig5E8CcdM9g/0.jpg)](https://www.youtube.com/watch?v=ig5E8CcdM9g)
+
+Another resource is GitHub blog:
+* [Git’s database internals I: packed object store](https://github.blog/2022-08-29-gits-database-internals-i-packed-object-store/)
+* [Git’s database internals II: commit history queries](https://github.blog/2022-08-30-gits-database-internals-ii-commit-history-queries/)
+
+And this description of .git directory:
+* [What is in that .git directory?](https://blog.meain.io/2023/what-is-in-dot-git/)
+
+There is also chapter in git Pro book
+* [Git Internals](https://git-scm.com/book/en/v2/Git-Internals-Plumbing-and-Porcelain)
+
+You can also search [git in the blog of Julia Evans](https://duckduckgo.com/?q=site%3Ajvns.ca+git&ia=web).

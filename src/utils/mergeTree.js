@@ -3,6 +3,7 @@ import '../typedefs.js'
 
 import { TREE } from '../commands/TREE.js'
 import { _walk } from '../commands/walk.js'
+import { MergeConflictError } from '../errors/MergeConflictError.js'
 import { MergeNotSupportedError } from '../errors/MergeNotSupportedError.js'
 import { GitTree } from '../models/GitTree.js'
 import { _writeObject as writeObject } from '../storage/writeObject.js'
@@ -10,6 +11,7 @@ import { _writeObject as writeObject } from '../storage/writeObject.js'
 import { basename } from './basename.js'
 import { join } from './join.js'
 import { mergeFile } from './mergeFile.js'
+import { modified } from './modified.js'
 
 /**
  * Create a merged tree
@@ -26,6 +28,8 @@ import { mergeFile } from './mergeFile.js'
  * @param {string} [args.baseName='base'] - The name to use in conflicted files (in diff3 format) for the base hunks
  * @param {string} [args.theirName='theirs'] - The name to use in conflicted files for their hunks
  * @param {boolean} [args.dryRun=false]
+ * @param {boolean} [args.abortOnConflict=false]
+ * @param {MergeDriverCallback} [args.mergeDriver]
  *
  * @returns {Promise<string>} - The SHA-1 object id of the merged tree
  *
@@ -35,6 +39,7 @@ export async function mergeTree({
   cache,
   dir,
   gitdir = join(dir, '.git'),
+  index,
   ourOid,
   baseOid,
   theirOid,
@@ -42,10 +47,17 @@ export async function mergeTree({
   baseName = 'base',
   theirName = 'theirs',
   dryRun = false,
+  abortOnConflict = true,
+  mergeDriver,
 }) {
   const ourTree = TREE({ ref: ourOid })
   const baseTree = TREE({ ref: baseOid })
   const theirTree = TREE({ ref: theirOid })
+
+  const unmergedFiles = []
+  const bothModified = []
+  const deleteByUs = []
+  const deleteByTheirs = []
 
   const results = await _walk({
     fs,
@@ -107,9 +119,92 @@ export async function mergeTree({
               ourName,
               baseName,
               theirName,
+              mergeDriver,
+            }).then(async r => {
+              if (!r.cleanMerge) {
+                unmergedFiles.push(filepath)
+                bothModified.push(filepath)
+                if (!abortOnConflict) {
+                  const baseOid = await base.oid()
+                  const ourOid = await ours.oid()
+                  const theirOid = await theirs.oid()
+
+                  index.delete({ filepath })
+
+                  index.insert({ filepath, oid: baseOid, stage: 1 })
+                  index.insert({ filepath, oid: ourOid, stage: 2 })
+                  index.insert({ filepath, oid: theirOid, stage: 3 })
+                }
+              } else if (!abortOnConflict) {
+                index.insert({ filepath, oid: r.mergeResult.oid, stage: 0 })
+              }
+              return r.mergeResult
             })
           }
+
+          // deleted by us
+          if (
+            base &&
+            !ours &&
+            theirs &&
+            (await base.type()) === 'blob' &&
+            (await theirs.type()) === 'blob'
+          ) {
+            unmergedFiles.push(filepath)
+            deleteByUs.push(filepath)
+            if (!abortOnConflict) {
+              const baseOid = await base.oid()
+              const theirOid = await theirs.oid()
+
+              index.delete({ filepath })
+
+              index.insert({ filepath, oid: baseOid, stage: 1 })
+              index.insert({ filepath, oid: theirOid, stage: 3 })
+            }
+
+            return {
+              mode: await theirs.mode(),
+              oid: await theirs.oid(),
+              type: 'blob',
+              path,
+            }
+          }
+
+          // deleted by theirs
+          if (
+            base &&
+            ours &&
+            !theirs &&
+            (await base.type()) === 'blob' &&
+            (await ours.type()) === 'blob'
+          ) {
+            unmergedFiles.push(filepath)
+            deleteByTheirs.push(filepath)
+            if (!abortOnConflict) {
+              const baseOid = await base.oid()
+              const ourOid = await ours.oid()
+
+              index.delete({ filepath })
+
+              index.insert({ filepath, oid: baseOid, stage: 1 })
+              index.insert({ filepath, oid: ourOid, stage: 2 })
+            }
+
+            return {
+              mode: await ours.mode(),
+              oid: await ours.oid(),
+              type: 'blob',
+              path,
+            }
+          }
+
+          // deleted by both
+          if (base && !ours && !theirs && (await base.type()) === 'blob') {
+            return undefined
+          }
+
           // all other types of conflicts fail
+          // TODO: Merge conflicts involving additions
           throw new MergeNotSupportedError()
         }
       }
@@ -118,54 +213,62 @@ export async function mergeTree({
      * @param {TreeEntry} [parent]
      * @param {Array<TreeEntry>} children
      */
-    reduce: async (parent, children) => {
-      const entries = children.filter(Boolean) // remove undefineds
+    reduce:
+      unmergedFiles.length !== 0 && (!dir || abortOnConflict)
+        ? undefined
+        : async (parent, children) => {
+            const entries = children.filter(Boolean) // remove undefineds
 
-      // if the parent was deleted, the children have to go
-      if (!parent) return
+            // if the parent was deleted, the children have to go
+            if (!parent) return
 
-      // automatically delete directories if they have been emptied
-      if (parent && parent.type === 'tree' && entries.length === 0) return
+            // automatically delete directories if they have been emptied
+            if (parent && parent.type === 'tree' && entries.length === 0) return
 
-      if (entries.length > 0) {
-        const tree = new GitTree(entries)
-        const object = tree.toObject()
-        const oid = await writeObject({
-          fs,
-          gitdir,
-          type: 'tree',
-          object,
-          dryRun,
-        })
-        parent.oid = oid
-      }
-      return parent
-    },
+            if (entries.length > 0) {
+              const tree = new GitTree(entries)
+              const object = tree.toObject()
+              const oid = await writeObject({
+                fs,
+                gitdir,
+                type: 'tree',
+                object,
+                dryRun,
+              })
+              parent.oid = oid
+            }
+            return parent
+          },
   })
-  return results.oid
-}
 
-/**
- *
- * @param {WalkerEntry} entry
- * @param {WalkerEntry} base
- *
- */
-async function modified(entry, base) {
-  if (!entry && !base) return false
-  if (entry && !base) return true
-  if (!entry && base) return true
-  if ((await entry.type()) === 'tree' && (await base.type()) === 'tree') {
-    return false
+  if (unmergedFiles.length !== 0) {
+    if (dir && !abortOnConflict) {
+      await _walk({
+        fs,
+        cache,
+        dir,
+        gitdir,
+        trees: [TREE({ ref: results.oid })],
+        map: async function(filepath, [entry]) {
+          const path = `${dir}/${filepath}`
+          if ((await entry.type()) === 'blob') {
+            const mode = await entry.mode()
+            const content = new TextDecoder().decode(await entry.content())
+            await fs.write(path, content, { mode })
+          }
+          return true
+        },
+      })
+    }
+    return new MergeConflictError(
+      unmergedFiles,
+      bothModified,
+      deleteByUs,
+      deleteByTheirs
+    )
   }
-  if (
-    (await entry.type()) === (await base.type()) &&
-    (await entry.mode()) === (await base.mode()) &&
-    (await entry.oid()) === (await base.oid())
-  ) {
-    return false
-  }
-  return true
+
+  return results.oid
 }
 
 /**
@@ -180,9 +283,8 @@ async function modified(entry, base) {
  * @param {string} [args.ourName]
  * @param {string} [args.baseName]
  * @param {string} [args.theirName]
- * @param {string} [args.format]
- * @param {number} [args.markerSize]
  * @param {boolean} [args.dryRun = false]
+ * @param {MergeDriverCallback} [args.mergeDriver]
  *
  */
 async function mergeBlobs({
@@ -195,9 +297,8 @@ async function mergeBlobs({
   ourName,
   theirName,
   baseName,
-  format,
-  markerSize,
   dryRun,
+  mergeDriver = mergeFile,
 }) {
   const type = 'blob'
   // Compute the new mode.
@@ -208,30 +309,33 @@ async function mergeBlobs({
       : await ours.mode()
   // The trivial case: nothing to merge except maybe mode
   if ((await ours.oid()) === (await theirs.oid())) {
-    return { mode, path, oid: await ours.oid(), type }
+    return {
+      cleanMerge: true,
+      mergeResult: { mode, path, oid: await ours.oid(), type },
+    }
   }
   // if only one side made oid changes, return that side's oid
   if ((await ours.oid()) === (await base.oid())) {
-    return { mode, path, oid: await theirs.oid(), type }
+    return {
+      cleanMerge: true,
+      mergeResult: { mode, path, oid: await theirs.oid(), type },
+    }
   }
   if ((await theirs.oid()) === (await base.oid())) {
-    return { mode, path, oid: await ours.oid(), type }
+    return {
+      cleanMerge: true,
+      mergeResult: { mode, path, oid: await ours.oid(), type },
+    }
   }
   // if both sides made changes do a merge
-  const { mergedText, cleanMerge } = mergeFile({
-    ourContent: Buffer.from(await ours.content()).toString('utf8'),
-    baseContent: Buffer.from(await base.content()).toString('utf8'),
-    theirContent: Buffer.from(await theirs.content()).toString('utf8'),
-    ourName,
-    theirName,
-    baseName,
-    format,
-    markerSize,
+  const ourContent = Buffer.from(await ours.content()).toString('utf8')
+  const baseContent = Buffer.from(await base.content()).toString('utf8')
+  const theirContent = Buffer.from(await theirs.content()).toString('utf8')
+  const { mergedText, cleanMerge } = await mergeDriver({
+    branches: [baseName, ourName, theirName],
+    contents: [baseContent, ourContent, theirContent],
+    path,
   })
-  if (!cleanMerge) {
-    // all other types of conflicts fail
-    throw new MergeNotSupportedError()
-  }
   const oid = await writeObject({
     fs,
     gitdir,
@@ -239,5 +343,6 @@ async function mergeBlobs({
     object: Buffer.from(mergedText, 'utf8'),
     dryRun,
   })
-  return { mode, path, oid, type }
+
+  return { cleanMerge, mergeResult: { mode, path, oid, type } }
 }

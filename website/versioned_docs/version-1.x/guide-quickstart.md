@@ -21,6 +21,7 @@ window.pfs = window.fs.promises
 </script>
 ```
 
+## Picking a directory
 Now let's pick a directory to work in.
 
 ```js live
@@ -44,7 +45,7 @@ await git.clone({
   dir,
   corsProxy: 'https://cors.isomorphic-git.org',
   url: 'https://github.com/isomorphic-git/isomorphic-git',
-  ref: 'master',
+  ref: 'main',
   singleBranch: true,
   depth: 10
 });

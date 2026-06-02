@@ -45,46 +45,44 @@ export async function _readObject({
       oid,
       getExternalRefDelta,
     })
-  }
-  // Finally
-  if (!result) {
-    throw new NotFoundError(oid)
+
+    if (!result) {
+      throw new NotFoundError(oid)
+    }
+
+    // Directly return packed result, as specified: packed objects always return the 'content' format.
+    return result
   }
 
+  // Loose objects are always deflated, return early
   if (format === 'deflated') {
     return result
   }
 
-  // BEHOLD! THE ONLY TIME I'VE EVER WANTED TO USE A CASE STATEMENT WITH FOLLOWTHROUGH!
-  // eslint-ignore
-  /* eslint-disable no-fallthrough */
-  switch (result.format) {
-    case 'deflated': {
-      result.object = Buffer.from(await inflate(result.object))
-      result.format = 'wrapped'
-    }
-    case 'wrapped': {
-      if (format === 'wrapped' && result.format === 'wrapped') {
-        return result
-      }
-      const sha = await shasum(result.object)
-      if (sha !== oid) {
-        throw new InternalError(
-          `SHA check failed! Expected ${oid}, computed ${sha}`
-        )
-      }
-      const { object, type } = GitObject.unwrap(result.object)
-      result.type = type
-      result.object = object
-      result.format = 'content'
-    }
-    case 'content': {
-      if (format === 'content') return result
-      break
-    }
-    default: {
-      throw new InternalError(`invalid format "${result.format}"`)
-    }
+  // All loose objects are deflated but the hard-coded empty tree is `wrapped` so we have to check if we need to inflate the object.
+  if (result.format === 'deflated') {
+    result.object = Buffer.from(await inflate(result.object))
+    result.format = 'wrapped'
   }
-  /* eslint-enable no-fallthrough */
+
+  if (format === 'wrapped') {
+    return result
+  }
+
+  const sha = await shasum(result.object)
+  if (sha !== oid) {
+    throw new InternalError(
+      `SHA check failed! Expected ${oid}, computed ${sha}`
+    )
+  }
+  const { object, type } = GitObject.unwrap(result.object)
+  result.type = type
+  result.object = object
+  result.format = 'content'
+
+  if (format === 'content') {
+    return result
+  }
+
+  throw new InternalError(`invalid requested format "${format}"`)
 }

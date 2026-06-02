@@ -21,6 +21,7 @@ import { worthWalking } from '../utils/worthWalking.js'
  * @param {import('../models/FileSystem.js').FileSystem} args.fs
  * @param {any} args.cache
  * @param {ProgressCallback} [args.onProgress]
+ * @param {PostCheckoutCallback} [args.onPostCheckout]
  * @param {string} args.dir
  * @param {string} args.gitdir
  * @param {string} args.ref
@@ -30,6 +31,7 @@ import { worthWalking } from '../utils/worthWalking.js'
  * @param {boolean} [args.noUpdateHead]
  * @param {boolean} [args.dryRun]
  * @param {boolean} [args.force]
+ * @param {boolean} [args.track]
  *
  * @returns {Promise<void>} Resolves successfully when filesystem operations are complete
  *
@@ -38,6 +40,7 @@ export async function _checkout({
   fs,
   cache,
   onProgress,
+  onPostCheckout,
   dir,
   gitdir,
   remote,
@@ -47,7 +50,18 @@ export async function _checkout({
   noUpdateHead,
   dryRun,
   force,
+  track = true,
 }) {
+  // oldOid is defined only if onPostCheckout hook is attached
+  let oldOid
+  if (onPostCheckout) {
+    try {
+      oldOid = await GitRefManager.resolve({ fs, gitdir, ref: 'HEAD' })
+    } catch (err) {
+      oldOid = '0000000000000000000000000000000000000000'
+    }
+  }
+
   // Get tree oid
   let oid
   try {
@@ -64,11 +78,13 @@ export async function _checkout({
       gitdir,
       ref: remoteRef,
     })
-    // Set up remote tracking branch
-    const config = await GitConfigManager.get({ fs, gitdir })
-    await config.set(`branch.${ref}.remote`, remote)
-    await config.set(`branch.${ref}.merge`, `refs/heads/${ref}`)
-    await GitConfigManager.save({ fs, gitdir, config })
+    if (track) {
+      // Set up remote tracking branch
+      const config = await GitConfigManager.get({ fs, gitdir })
+      await config.set(`branch.${ref}.remote`, remote)
+      await config.set(`branch.${ref}.merge`, `refs/heads/${ref}`)
+      await GitConfigManager.save({ fs, gitdir, config })
+    }
     // Create a new branch that points at that same commit
     await GitRefManager.writeRef({
       fs,
@@ -121,6 +137,14 @@ export async function _checkout({
     if (dryRun) {
       // Since the format of 'ops' is in flux, I really would rather folk besides myself not start relying on it
       // return ops
+
+      if (onPostCheckout) {
+        await onPostCheckout({
+          previousHead: oldOid,
+          newHead: oid,
+          type: filepaths != null && filepaths.length > 0 ? 'file' : 'branch',
+        })
+      }
       return
     }
 
@@ -265,6 +289,14 @@ export async function _checkout({
           })
       )
     })
+
+    if (onPostCheckout) {
+      await onPostCheckout({
+        previousHead: oldOid,
+        newHead: oid,
+        type: filepaths != null && filepaths.length > 0 ? 'file' : 'branch',
+      })
+    }
   }
 
   // Update HEAD
@@ -314,7 +346,7 @@ async function analyze({
 
       // This is a kind of silly pattern but it worked so well for me in the past
       // and it makes intuitively demonstrating exhaustiveness so *easy*.
-      // This checks for the presense and/or absense of each of the 3 entries,
+      // This checks for the presence and/or absence of each of the 3 entries,
       // converts that to a 3-bit binary representation, and then handles
       // every possible combination (2^3 or 8 cases) with a lookup table.
       const key = [!!stage, !!commit, !!workdir].map(Number).join('')

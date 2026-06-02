@@ -15,6 +15,7 @@
 /internal-apis.cjs
 /internal-apis.umd.min.js
 /internal-apis.umd.min.js.map
+/dist
 
 # Test run artifacts
 /coverage
@@ -74,7 +75,12 @@ node_modules
 # Webstorm development environment
 .idea/
 
+# Vim swap files
+*.swp
+*.swo
+
 # AUTO-GENERATED DOCS --- DO NOT EDIT BELOW THIS LINE
+docs/abortMerge.md
 docs/add.md
 docs/addNote.md
 docs/addRemote.md
@@ -102,6 +108,7 @@ docs/hashBlob.md
 docs/indexPack.md
 docs/init.md
 docs/isDescendent.md
+docs/isIgnored.md
 docs/listBranches.md
 docs/listFiles.md
 docs/listNotes.md
@@ -128,6 +135,7 @@ docs/setConfig.md
 docs/status.md
 docs/statusMatrix.md
 docs/tag.md
+docs/updateIndex.md
 docs/version.md
 docs/walk.md
 docs/writeBlob.md

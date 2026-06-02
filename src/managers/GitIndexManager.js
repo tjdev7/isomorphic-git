@@ -1,6 +1,7 @@
 // import LockManager from 'travix-lock-manager'
 import AsyncLock from 'async-lock'
 
+import { UnmergedPathsError } from '../errors/UnmergedPathsError.js'
 import { GitIndex } from '../models/GitIndex.js'
 import { compareStats } from '../utils/compareStats.js'
 
@@ -45,15 +46,17 @@ export class GitIndexManager {
    * @param {import('../models/FileSystem.js').FileSystem} opts.fs
    * @param {string} opts.gitdir
    * @param {object} opts.cache
+   * @param {bool} opts.allowUnmerged
    * @param {function(GitIndex): any} closure
    */
-  static async acquire({ fs, gitdir, cache }, closure) {
+  static async acquire({ fs, gitdir, cache, allowUnmerged = true }, closure) {
     if (!cache[IndexCache]) cache[IndexCache] = createCache()
 
     const filepath = `${gitdir}/index`
     if (lock === null) lock = new AsyncLock({ maxPending: Infinity })
     let result
-    await lock.acquire(filepath, async function() {
+    let unmergedPaths = []
+    await lock.acquire(filepath, async () => {
       // Acquire a file lock while we're reading the index
       // to make sure other processes aren't writing to it
       // simultaneously, which could result in a corrupted index.
@@ -62,6 +65,11 @@ export class GitIndexManager {
         await updateCachedIndexFile(fs, filepath, cache[IndexCache])
       }
       const index = cache[IndexCache].map.get(filepath)
+      unmergedPaths = index.unmergedPaths
+
+      if (unmergedPaths.length && !allowUnmerged)
+        throw new UnmergedPathsError(unmergedPaths)
+
       result = await closure(index)
       if (index._dirty) {
         // Acquire a file lock while we're writing the index file
@@ -73,6 +81,7 @@ export class GitIndexManager {
         index._dirty = false
       }
     })
+
     return result
   }
 }

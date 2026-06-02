@@ -14,6 +14,7 @@
       "pull",
       "fastForward",
       "merge",
+      "abortMerge",
       "walk"
     ],
     "Callbacks": [
@@ -21,8 +22,11 @@
       "onAuthSuccess",
       "onAuthFailure",
       "onMessage",
+      "onPostCheckout",
+      "onPrePush",
       "onProgress",
-      "onSign"
+      "onSign",
+      "mergeDriver"
     ],
     "Clients": [
       "fs",
@@ -50,7 +54,8 @@
       "add",
       "remove",
       "listFiles",
-      "status"
+      "status",
+      "isIgnored"
     ],
     "Notes": [
       "addNote",
@@ -83,6 +88,7 @@
       "expandRef",
       "expandOid",
       "resetIndex",
+      "updateIndex",
       "resolveRef",
       "writeRef",
       "deleteRef",
@@ -97,6 +103,7 @@
   "guide": {
     "Getting Started": [
       "quickstart",
+      "quickstart-with-bundlers",
       "dir-vs-gitdir",
       "cli",
       "cache"

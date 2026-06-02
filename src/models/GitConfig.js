@@ -34,7 +34,7 @@ const schema = {
 // section starts with [ and ends with ]
 // section is alphanumeric (ASCII) with - and .
 // section is case insensitive
-// subsection is optionnal
+// subsection is optional
 // subsection is specified after section and one or more spaces
 // subsection is specified between double quotes
 const SECTION_LINE_REGEX = /^\[([A-Za-z0-9-.]+)(?: "(.*)")?\]$/
@@ -48,6 +48,7 @@ const SECTION_REGEX = /^[A-Za-z0-9-.]+$/
 const VARIABLE_LINE_REGEX = /^([A-Za-z][A-Za-z-]*)(?: *= *(.*))?$/
 const VARIABLE_NAME_REGEX = /^[A-Za-z][A-Za-z-]*$/
 
+// Comments start with either # or ; and extend to the end of line
 const VARIABLE_VALUE_COMMENT_REGEX = /^(.*?)( *[#;].*)$/
 
 const extractSectionLine = line => {
@@ -112,6 +113,21 @@ const getPath = (section, subsection, name) => {
     .join('.')
 }
 
+const normalizePath = path => {
+  const pathSegments = path.split('.')
+  const section = pathSegments.shift()
+  const name = pathSegments.pop()
+  const subsection = pathSegments.length ? pathSegments.join('.') : undefined
+
+  return {
+    section,
+    subsection,
+    name,
+    path: getPath(section, subsection, name),
+    sectionPath: getPath(section, subsection, null),
+  }
+}
+
 const findLastIndex = (array, callback) => {
   return array.reduce((lastIndex, item, index) => {
     return callback(item) ? index : lastIndex
@@ -124,26 +140,28 @@ export class GitConfig {
   constructor(text) {
     let section = null
     let subsection = null
-    this.parsedConfig = text.split('\n').map(line => {
-      let name = null
-      let value = null
+    this.parsedConfig = text
+      ? text.split('\n').map(line => {
+          let name = null
+          let value = null
 
-      const trimmedLine = line.trim()
-      const extractedSection = extractSectionLine(trimmedLine)
-      const isSection = extractedSection != null
-      if (isSection) {
-        ;[section, subsection] = extractedSection
-      } else {
-        const extractedVariable = extractVariableLine(trimmedLine)
-        const isVariable = extractedVariable != null
-        if (isVariable) {
-          ;[name, value] = extractedVariable
-        }
-      }
+          const trimmedLine = line.trim()
+          const extractedSection = extractSectionLine(trimmedLine)
+          const isSection = extractedSection != null
+          if (isSection) {
+            ;[section, subsection] = extractedSection
+          } else {
+            const extractedVariable = extractVariableLine(trimmedLine)
+            const isVariable = extractedVariable != null
+            if (isVariable) {
+              ;[name, value] = extractedVariable
+            }
+          }
 
-      const path = getPath(section, subsection, name)
-      return { line, isSection, section, subsection, name, value, path }
-    })
+          const path = getPath(section, subsection, name)
+          return { line, isSection, section, subsection, name, value, path }
+        })
+      : []
   }
 
   static from(text) {
@@ -151,8 +169,9 @@ export class GitConfig {
   }
 
   async get(path, getall = false) {
+    const normalizedPath = normalizePath(path).path
     const allValues = this.parsedConfig
-      .filter(config => config.path === path.toLowerCase())
+      .filter(config => config.path === normalizedPath)
       .map(({ section, name, value }) => {
         const fn = schema[section] && schema[section][name]
         return fn ? fn(value) : value
@@ -182,9 +201,16 @@ export class GitConfig {
   }
 
   async set(path, value, append = false) {
+    const {
+      section,
+      subsection,
+      name,
+      path: normalizedPath,
+      sectionPath,
+    } = normalizePath(path)
     const configIndex = findLastIndex(
       this.parsedConfig,
-      config => config.path === path.toLowerCase()
+      config => config.path === normalizedPath
     )
     if (value == null) {
       if (configIndex !== -1) {
@@ -193,7 +219,9 @@ export class GitConfig {
     } else {
       if (configIndex !== -1) {
         const config = this.parsedConfig[configIndex]
+        // Name should be overwritten in case the casing changed
         const modifiedConfig = Object.assign({}, config, {
+          name,
           value,
           modified: true,
         })
@@ -203,23 +231,16 @@ export class GitConfig {
           this.parsedConfig[configIndex] = modifiedConfig
         }
       } else {
-        const sectionPath = path
-          .split('.')
-          .slice(0, -1)
-          .join('.')
-          .toLowerCase()
         const sectionIndex = this.parsedConfig.findIndex(
           config => config.path === sectionPath
         )
-        const [section, subsection] = sectionPath.split('.')
-        const name = path.split('.').pop()
         const newConfig = {
           section,
           subsection,
           name,
           value,
           modified: true,
-          path: getPath(section, subsection, name),
+          path: normalizedPath,
         }
         if (SECTION_REGEX.test(section) && VARIABLE_NAME_REGEX.test(name)) {
           if (sectionIndex >= 0) {
@@ -231,7 +252,7 @@ export class GitConfig {
               section,
               subsection,
               modified: true,
-              path: getPath(section, subsection, null),
+              path: sectionPath,
             }
             this.parsedConfig.push(newSection, newConfig)
           }
@@ -247,6 +268,10 @@ export class GitConfig {
           return line
         }
         if (name != null && value != null) {
+          if (typeof value === 'string' && /[#;]/.test(value)) {
+            // A `#` or `;` symbol denotes a comment, so we have to wrap it in double quotes
+            return `\t${name} = "${value}"`
+          }
           return `\t${name} = ${value}`
         }
         if (subsection != null) {

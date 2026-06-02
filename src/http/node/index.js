@@ -16,6 +16,7 @@ export async function request({
   url,
   method = 'GET',
   headers = {},
+  agent,
   body,
 }) {
   // If we can, we should send it as a single buffer so it sets a Content-Length header.
@@ -30,19 +31,24 @@ export async function request({
         url,
         method,
         headers,
+        agent,
         body,
       },
       (err, res) => {
         if (err) return reject(err)
-        const iter = fromNodeStream(res)
-        resolve({
-          url: res.url,
-          method: res.method,
-          statusCode: res.statusCode,
-          statusMessage: res.statusMessage,
-          body: iter,
-          headers: res.headers,
-        })
+        try {
+          const iter = fromNodeStream(res)
+          resolve({
+            url: res.url,
+            method: res.method,
+            statusCode: res.statusCode,
+            statusMessage: res.statusMessage,
+            body: iter,
+            headers: res.headers,
+          })
+        } catch (e) {
+          reject(e)
+        }
       }
     )
   })

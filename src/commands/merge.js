@@ -5,7 +5,9 @@ import { _commit } from '../commands/commit'
 import { _currentBranch } from '../commands/currentBranch.js'
 import { _findMergeBase } from '../commands/findMergeBase.js'
 import { FastForwardError } from '../errors/FastForwardError.js'
+import { MergeConflictError } from '../errors/MergeConflictError.js'
 import { MergeNotSupportedError } from '../errors/MergeNotSupportedError.js'
+import { GitIndexManager } from '../managers/GitIndexManager.js'
 import { GitRefManager } from '../managers/GitRefManager.js'
 import { abbreviateRef } from '../utils/abbreviateRef.js'
 import { mergeTree } from '../utils/mergeTree.js'
@@ -29,9 +31,11 @@ import { mergeTree } from '../utils/mergeTree.js'
  * @param {string} args.gitdir
  * @param {string} [args.ours]
  * @param {string} args.theirs
+ * @param {boolean} args.fastForward
  * @param {boolean} args.fastForwardOnly
  * @param {boolean} args.dryRun
  * @param {boolean} args.noUpdateBranch
+ * @param {boolean} args.abortOnConflict
  * @param {string} [args.message]
  * @param {Object} args.author
  * @param {string} args.author.name
@@ -44,6 +48,8 @@ import { mergeTree } from '../utils/mergeTree.js'
  * @param {number} args.committer.timestamp
  * @param {number} args.committer.timezoneOffset
  * @param {string} [args.signingKey]
+ * @param {SignCallback} [args.onSign] - a PGP signing implementation
+ * @param {MergeDriverCallback} [args.mergeDriver]
  *
  * @returns {Promise<MergeResult>} Resolves to a description of the merge operation
  *
@@ -51,16 +57,21 @@ import { mergeTree } from '../utils/mergeTree.js'
 export async function _merge({
   fs,
   cache,
+  dir,
   gitdir,
   ours,
   theirs,
+  fastForward = true,
   fastForwardOnly = false,
   dryRun = false,
   noUpdateBranch = false,
+  abortOnConflict = true,
   message,
   author,
   committer,
   signingKey,
+  onSign,
+  mergeDriver,
 }) {
   if (ours === undefined) {
     ours = await _currentBranch({ fs, gitdir, fullname: true })
@@ -93,6 +104,7 @@ export async function _merge({
     oids: [ourOid, theirOid],
   })
   if (baseOids.length !== 1) {
+    // TODO: Recursive Merge strategy
     throw new MergeNotSupportedError()
   }
   const baseOid = baseOids[0]
@@ -103,7 +115,7 @@ export async function _merge({
       alreadyMerged: true,
     }
   }
-  if (baseOid === ourOid) {
+  if (fastForward && baseOid === ourOid) {
     if (!dryRun && !noUpdateBranch) {
       await GitRefManager.writeRef({ fs, gitdir, ref: ours, value: theirOid })
     }
@@ -117,18 +129,32 @@ export async function _merge({
       throw new FastForwardError()
     }
     // try a fancier merge
-    const tree = await mergeTree({
-      fs,
-      cache,
-      gitdir,
-      ourOid,
-      theirOid,
-      baseOid,
-      ourName: ours,
-      baseName: 'base',
-      theirName: theirs,
-      dryRun,
-    })
+    const tree = await GitIndexManager.acquire(
+      { fs, gitdir, cache, allowUnmerged: false },
+      async index => {
+        return mergeTree({
+          fs,
+          cache,
+          dir,
+          gitdir,
+          index,
+          ourOid,
+          theirOid,
+          baseOid,
+          ourName: abbreviateRef(ours),
+          baseName: 'base',
+          theirName: abbreviateRef(theirs),
+          dryRun,
+          abortOnConflict,
+          mergeDriver,
+        })
+      }
+    )
+
+    // Defer throwing error until the index lock is relinquished and index is
+    // written to filsesystem
+    if (tree instanceof MergeConflictError) throw tree
+
     if (!message) {
       message = `Merge branch '${abbreviateRef(theirs)}' into ${abbreviateRef(
         ours
@@ -145,6 +171,7 @@ export async function _merge({
       author,
       committer,
       signingKey,
+      onSign,
       dryRun,
       noUpdateBranch,
     })

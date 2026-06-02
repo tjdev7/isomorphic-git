@@ -22,8 +22,11 @@ import { MissingParameterError } from '../errors/MissingParameterError.js'
  * @param {string} [args.url]
  * @param {string} [args.remote]
  * @param {string} [args.remoteRef]
+ * @param {boolean} [args.prune]
+ * @param {boolean} [args.pruneTags]
  * @param {string} [args.corsProxy]
  * @param {boolean} args.singleBranch
+ * @param {boolean} args.fastForward
  * @param {boolean} args.fastForwardOnly
  * @param {Object<string, string>} [args.headers]
  * @param {Object} args.author
@@ -56,6 +59,9 @@ export async function _pull({
   url,
   remote,
   remoteRef,
+  prune,
+  pruneTags,
+  fastForward,
   fastForwardOnly,
   corsProxy,
   singleBranch,
@@ -92,6 +98,8 @@ export async function _pull({
       remoteRef,
       singleBranch,
       headers,
+      prune,
+      pruneTags,
     })
     // Merge the remote tracking branch into the local one.
     await _merge({
@@ -100,6 +108,7 @@ export async function _pull({
       gitdir,
       ours: ref,
       theirs: fetchHead,
+      fastForward,
       fastForwardOnly,
       message: `Merge ${fetchHeadDescription}`,
       author,

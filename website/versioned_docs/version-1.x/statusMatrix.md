@@ -16,6 +16,7 @@ Efficiently get the status of multiple files at once.
 | filepaths      | Array\<string\> = ['.']       | Limit the query to the given files and directories                                                 |
 | filter         | function(string): boolean     | Filter the results to only those whose filepath matches a function.                                |
 | cache          | object                        | a [cache](cache.md) object                                                                         |
+| ignored        | boolean = false               | include ignored files in the result                                                                |
 | return         | Promise\<Array\<StatusRow\>\> | Resolves with a status matrix, described below.                                                    |
 
 ```ts
@@ -65,6 +66,8 @@ representing the HEAD status, WORKDIR status, and STAGE status of the entry.
   ["g.txt", 1, 2, 3], // modified, staged, with unstaged changes
   ["h.txt", 1, 0, 1], // deleted, unstaged
   ["i.txt", 1, 0, 0], // deleted, staged
+  ["j.txt", 1, 2, 0], // deleted, staged, with unstaged-modified changes (new file of the same name)
+  ["k.txt", 1, 1, 0], // deleted, staged, with unstaged changes (new file of the same name)
 ]
 ```
 

@@ -3,6 +3,7 @@ import './typedefs.js'
 import { STAGE } from './api/STAGE.js'
 import { TREE } from './api/TREE.js'
 import { WORKDIR } from './api/WORKDIR.js'
+import { abortMerge } from './api/abortMerge.js'
 import { add } from './api/add.js'
 import { addNote } from './api/addNote.js'
 import { addRemote } from './api/addRemote.js'
@@ -30,6 +31,7 @@ import { hashBlob } from './api/hashBlob.js'
 import { indexPack } from './api/indexPack.js'
 import { init } from './api/init.js'
 import { isDescendent } from './api/isDescendent.js'
+import { isIgnored } from './api/isIgnored.js'
 import { listBranches } from './api/listBranches.js'
 import { listFiles } from './api/listFiles.js'
 import { listNotes } from './api/listNotes.js'
@@ -56,6 +58,7 @@ import { setConfig } from './api/setConfig.js'
 import { status } from './api/status.js'
 import { statusMatrix } from './api/statusMatrix.js'
 import { tag } from './api/tag.js'
+import { updateIndex } from './api/updateIndex.js'
 import { version } from './api/version.js'
 import { walk } from './api/walk.js'
 import { writeBlob } from './api/writeBlob.js'
@@ -72,6 +75,7 @@ export {
   STAGE,
   TREE,
   WORKDIR,
+  abortMerge,
   add,
   addNote,
   addRemote,
@@ -100,6 +104,7 @@ export {
   indexPack,
   init,
   isDescendent,
+  isIgnored,
   listBranches,
   listFiles,
   listNotes,
@@ -121,6 +126,7 @@ export {
   removeNote,
   renameBranch,
   resetIndex,
+  updateIndex,
   resolveRef,
   status,
   statusMatrix,
@@ -142,6 +148,7 @@ export default {
   TREE,
   WORKDIR,
   add,
+  abortMerge,
   addNote,
   addRemote,
   annotatedTag,
@@ -169,6 +176,7 @@ export default {
   indexPack,
   init,
   isDescendent,
+  isIgnored,
   listBranches,
   listFiles,
   listNotes,
@@ -190,6 +198,7 @@ export default {
   removeNote,
   renameBranch,
   resetIndex,
+  updateIndex,
   resolveRef,
   status,
   statusMatrix,

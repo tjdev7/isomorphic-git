@@ -1,3 +1,5 @@
+import http from 'isomorphic-git/http'
+
 /* eslint-env node, browser, jasmine */
 const {
   Errors,
@@ -6,15 +8,33 @@ const {
   add,
   commit,
   branch,
+  getConfig,
+  fetch: gitFetch,
+  setConfig,
 } = require('isomorphic-git')
 
+/* eslint-env node, browser, jasmine */
+
 const { makeFixture } = require('./__helpers__/FixtureFS.js')
+
+// this is so it works with either Node local tests or Browser WAN tests
+const localhost =
+  typeof window === 'undefined' ? '127.0.0.1' : window.location.hostname
 
 describe('checkout', () => {
   it('checkout', async () => {
     // Setup
     const { fs, dir, gitdir } = await makeFixture('test-checkout')
-    await checkout({ fs, dir, gitdir, ref: 'test-branch' })
+    const onPostCheckout = []
+    await checkout({
+      fs,
+      dir,
+      gitdir,
+      ref: 'test-branch',
+      onPostCheckout: args => {
+        onPostCheckout.push(args)
+      },
+    })
     const files = await fs.readdir(dir)
     expect(files.sort()).toMatchInlineSnapshot(`
       Array [
@@ -67,6 +87,13 @@ describe('checkout', () => {
     `)
     const sha = await fs.read(gitdir + '/HEAD', 'utf8')
     expect(sha).toBe('ref: refs/heads/test-branch\n')
+    expect(onPostCheckout).toEqual([
+      {
+        newHead: 'e10ebb90d03eaacca84de1af0a59b444232da99e',
+        previousHead: '0f55956cbd50de80c2f86e6e565f00c92ce86631',
+        type: 'branch',
+      },
+    ])
   })
 
   it('checkout by tag', async () => {
@@ -449,5 +476,204 @@ describe('checkout', () => {
     })
     const files = await fs.readdir(dir)
     expect(files).toContain('README.md')
+  })
+
+  it('should setup the remote tracking branch by default', async () => {
+    const { fs, dir, gitdir } = await makeFixture('test-fetch-cors')
+
+    await setConfig({
+      fs,
+      gitdir,
+      path: 'http.corsProxy',
+      value: `http://${localhost}:9999`,
+    })
+
+    // fetch `test-branch` so `refs/remotes/test-branch` exists but `refs/heads/test-branch` does not
+    await gitFetch({
+      fs,
+      dir,
+      gitdir,
+      http,
+      singleBranch: true,
+      remote: 'origin',
+      ref: 'test-branch',
+    })
+
+    await checkout({
+      fs,
+      dir,
+      gitdir,
+      ref: 'test-branch',
+    })
+
+    const [merge, remote] = await Promise.all([
+      getConfig({
+        fs,
+        dir,
+        gitdir,
+        path: 'branch.test-branch.merge',
+      }),
+      getConfig({
+        fs,
+        dir,
+        gitdir,
+        path: 'branch.test-branch.remote',
+      }),
+    ])
+
+    expect(merge).toContain('refs/heads/test-branch')
+    expect(remote).toContain('origin')
+  })
+
+  it('should setup the remote tracking branch with `track: true`', async () => {
+    const { fs, dir, gitdir } = await makeFixture('test-fetch-cors')
+
+    await setConfig({
+      fs,
+      gitdir,
+      path: 'http.corsProxy',
+      value: `http://${localhost}:9999`,
+    })
+
+    // fetch `test-branch` so `refs/remotes/test-branch` exists but `refs/heads/test-branch` does not
+    await gitFetch({
+      fs,
+      dir,
+      gitdir,
+      http,
+      singleBranch: true,
+      remote: 'origin',
+      ref: 'test-branch',
+    })
+
+    // checking the test-branch with `track: true` should setup the remote tracking branch
+    await checkout({
+      fs,
+      dir,
+      gitdir,
+      ref: 'test-branch',
+      track: true,
+    })
+
+    const [merge, remote] = await Promise.all([
+      getConfig({
+        fs,
+        dir,
+        gitdir,
+        path: 'branch.test-branch.merge',
+      }),
+      getConfig({
+        fs,
+        dir,
+        gitdir,
+        path: 'branch.test-branch.remote',
+      }),
+    ])
+
+    expect(merge).toContain('refs/heads/test-branch')
+    expect(remote).toContain('origin')
+  })
+
+  it('should not setup the remote tracking branch with `track: false`', async () => {
+    const { fs, dir, gitdir } = await makeFixture('test-fetch-cors')
+
+    await setConfig({
+      fs,
+      gitdir,
+      path: 'http.corsProxy',
+      value: `http://${localhost}:9999`,
+    })
+
+    // fetch `test-branch` so `refs/remotes/test-branch` exists but `refs/heads/test-branch` does not
+    await gitFetch({
+      fs,
+      dir,
+      gitdir,
+      http,
+      singleBranch: true,
+      remote: 'origin',
+      ref: 'test-branch',
+    })
+
+    // checking the test-branch with `track: false` should not setup the remote tracking branch
+    await checkout({
+      fs,
+      dir,
+      gitdir,
+      ref: 'test-branch',
+      track: false,
+    })
+
+    const [merge, remote] = await Promise.all([
+      getConfig({
+        fs,
+        dir,
+        gitdir,
+        path: 'branch.test-branch.merge',
+      }),
+      getConfig({
+        fs,
+        dir,
+        gitdir,
+        path: 'branch.main.remote',
+      }),
+    ])
+
+    expect(merge).toBeUndefined()
+    expect(remote).toBeUndefined()
+  })
+
+  it('onPostCheckout dry run', async () => {
+    const { fs, dir, gitdir } = await makeFixture('test-checkout')
+    const onPostCheckout = []
+    await checkout({
+      fs,
+      dir,
+      gitdir,
+      ref: 'test-branch',
+      dryRun: true,
+      onPostCheckout: args => {
+        onPostCheckout.push(args)
+      },
+    })
+
+    expect(onPostCheckout).toEqual([
+      {
+        newHead: 'e10ebb90d03eaacca84de1af0a59b444232da99e',
+        previousHead: '0f55956cbd50de80c2f86e6e565f00c92ce86631',
+        type: 'branch',
+      },
+    ])
+  })
+
+  it('onPostCheckout with specified filepaths', async () => {
+    // Setup
+    const { fs, dir, gitdir } = await makeFixture('test-checkout')
+    await checkout({
+      fs,
+      dir,
+      gitdir,
+      ref: 'test-branch',
+    })
+    // Test
+    const onPostCheckout = []
+    await checkout({
+      fs,
+      dir,
+      gitdir,
+      ref: 'test-branch',
+      filepaths: ['src/utils', 'test'],
+      onPostCheckout: args => {
+        onPostCheckout.push(args)
+      },
+    })
+
+    expect(onPostCheckout).toEqual([
+      {
+        newHead: 'e10ebb90d03eaacca84de1af0a59b444232da99e',
+        previousHead: 'e10ebb90d03eaacca84de1af0a59b444232da99e',
+        type: 'file',
+      },
+    ])
   })
 })
